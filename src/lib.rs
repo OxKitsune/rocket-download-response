@@ -36,11 +36,12 @@ const PATH_PERCENT_ENCODE_SET: &AsciiSet =
 enum DownloadResponseData {
     Static(&'static [u8]),
     Vec(Vec<u8>),
-    Reader {
-        #[educe(Debug(ignore))]
-        data: Box<dyn Read + 'static>,
-        content_length: Option<u64>,
-    },
+    // I cannot easily change this to support the new rocket
+    // Reader {
+    //     #[educe(Debug(ignore))]
+    //     data: Box<dyn Read + 'static>,
+    //     content_length: Option<u64>,
+    // },
     File(Rc<Path>),
 }
 
@@ -86,29 +87,29 @@ impl DownloadResponse {
         }
     }
 
-    /// Create a `DownloadResponse` instance from a reader.
-    pub fn from_reader<R: Read + 'static, S: Into<String>>(
-        reader: R,
-        file_name: Option<S>,
-        content_type: Option<Mime>,
-        content_length: Option<u64>,
-    ) -> DownloadResponse {
-        let file_name = file_name.map(|file_name| file_name.into());
+    // /// Create a `DownloadResponse` instance from a reader.
+    // pub fn from_reader<R: Read + 'static, S: Into<String>>(
+    //     reader: R,
+    //     file_name: Option<S>,
+    //     content_type: Option<Mime>,
+    //     content_length: Option<u64>,
+    // ) -> DownloadResponse {
+    //     let file_name = file_name.map(|file_name| file_name.into());
 
-        let data = DownloadResponseData::Reader {
-            data: Box::new(reader),
-            content_length,
-        };
+    //     let data = DownloadResponseData::Reader {
+    //         data: Box::new(reader),
+    //         content_length,
+    //     };
 
-        DownloadResponse {
-            file_name,
-            content_type,
-            data,
-        }
-    }
+    //     DownloadResponse {
+    //         file_name,
+    //         content_type,
+    //         data,
+    //     }
+    // }
 
     /// Create a `DownloadResponse` instance from a path of a file.
-    pub fn from_file<P: Into<Rc<Path>>, S: Into<String>>(
+    pub async fn from_file<P: Into<Rc<Path>>, S: Into<String>>(
         path: P,
         file_name: Option<S>,
         content_type: Option<Mime>,
@@ -155,8 +156,8 @@ macro_rules! content_type {
     };
 }
 
-impl<'a> Responder<'a> for DownloadResponse {
-    fn respond_to(self, _: &Request) -> response::Result<'a> {
+impl<'r> Responder<'r, 'static> for DownloadResponse {
+    fn respond_to(self, _: &Request<'_>) -> response::Result<'static> {
         let mut response = Response::build();
 
         match self.data {
@@ -164,27 +165,27 @@ impl<'a> Responder<'a> for DownloadResponse {
                 file_name!(self, response);
                 content_type!(self, response);
 
-                response.sized_body(Cursor::new(data));
+                response.sized_body(data.len(), Cursor::new(data));
             }
             DownloadResponseData::Vec(data) => {
                 file_name!(self, response);
                 content_type!(self, response);
 
-                response.sized_body(Cursor::new(data));
+                response.sized_body(data.len(), Cursor::new(data));
             }
-            DownloadResponseData::Reader {
-                data,
-                content_length,
-            } => {
-                file_name!(self, response);
-                content_type!(self, response);
+            // DownloadResponseData::Reader {
+            //     data,
+            //     content_length,
+            // } => {
+            //     file_name!(self, response);
+            //     content_type!(self, response);
 
-                if let Some(content_length) = content_length {
-                    response.raw_header("Content-Length", content_length.to_string());
-                }
+            //     if let Some(content_length) = content_length {
+            //         response.raw_header("Content-Length", content_length.to_string());
+            //     }
 
-                response.streamed_body(data);
-            }
+            //     response.streamed_body(data);
+            // }
             DownloadResponseData::File(path) => {
                 if let Some(file_name) = self.file_name {
                     if file_name.is_empty() {
@@ -228,7 +229,7 @@ impl<'a> Responder<'a> for DownloadResponse {
                     }
                 }
 
-                let file = File::open(path).map_err(|err| {
+                let mut file = File::open(path).map_err(|err| {
                     if err.kind() == ErrorKind::NotFound {
                         Status::NotFound
                     } else {
@@ -236,7 +237,12 @@ impl<'a> Responder<'a> for DownloadResponse {
                     }
                 })?;
 
-                response.sized_body(file);
+                let mut buffer = vec![0; file.metadata().unwrap().len() as usize];
+                file.read(&mut buffer).map_err(| err| {
+                    Status::InternalServerError
+                })?;
+
+                response.sized_body(buffer.len(), Cursor::new(buffer));
             }
         }
 

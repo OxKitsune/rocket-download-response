@@ -7,15 +7,18 @@ extern crate rocket_download_response;
 
 use std::path::Path;
 
+use rocket::*;
+
 use rocket_download_response::DownloadResponse;
 
 #[get("/")]
-fn download() -> DownloadResponse {
+async fn download() -> DownloadResponse {
     let path = Path::join(Path::new("examples"), Path::join(Path::new("images"), "image(貓).jpg"));
 
-    DownloadResponse::from_file(path, None::<String>, None)
+    DownloadResponse::from_file(path, None::<String>, None).await
 }
 
-fn main() {
-    rocket::ignite().mount("/", routes![download]).launch();
+#[launch]
+fn launch() -> _ {
+    rocket::ignite().mount("/", routes![download]).launch()
 }

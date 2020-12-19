@@ -17,7 +17,7 @@ repository = "magiclen/rocket-download-response"
 branch = "master"
 
 [dependencies]
-rocket = "0.4.2"
+rocket = {git = "https://github.com/SergioBenitez/Rocket"}
 mime = "0.3.13"
 mime_guess = " 2.0.0"
 percent-encoding = "2"
